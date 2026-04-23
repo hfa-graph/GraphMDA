@@ -200,7 +200,6 @@ def process_for_k(k: int):
 
     all_labels = sorted(set(src_df["label"].tolist()) | set(tgt_df["label"].tolist()))
 
-    # 修复点：不要对 Series 直接 float()，而是先按 label 对齐再直接取列
     if len(all_labels) > 0:
         src_df = src_df.set_index("label").reindex(all_labels, fill_value=0)
         tgt_df = tgt_df.set_index("label").reindex(all_labels, fill_value=0)
