@@ -17,21 +17,24 @@ OUT_BASE = Path(r"XXX/out_splits_strict_binary_src_tgt_180")
 # source windows contain no k (include other attacks). Mixed windows containing k and other attacks are discarded.
 CLASSES  = [1, 2, 3, 4, 5, 6]
 REQUIRE_BOTH_0_AND_K = False
-PURE_BENIGN_TO_TARGET_RATIO = 0  
-RANDOM_SEED = 42  
+PURE_BENIGN_TO_TARGET_RATIO = 0
+RANDOM_SEED = 42
 
 
 if RANDOM_SEED is not None:
     random.seed(RANDOM_SEED)
 
+
 def load_graph(win_dir: Path) -> nx.MultiGraph:
     with open(win_dir / "graph.pkl", "rb") as f:
         return pickle.load(f)
+
 
 def save_graph(G: nx.MultiGraph, path: Path):
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, "wb") as f:
         pickle.dump(G, f, protocol=pickle.HIGHEST_PROTOCOL)
+
 
 def window_dirs_sorted(base: Path):
     wins = []
@@ -45,6 +48,7 @@ def window_dirs_sorted(base: Path):
             continue
     return [p for _, p in sorted(wins, key=lambda x: x[0])]
 
+
 def labels_and_counts(G: nx.MultiGraph):
     lbls = nx.get_node_attributes(G, "Attack_encoded")
     if not lbls:
@@ -53,21 +57,26 @@ def labels_and_counts(G: nx.MultiGraph):
     C = Counter(int(v) for v in lbls.values())
     return S, C
 
+
 def save_label_counts_csv(counter: Counter, out_path: Path):
     out_path.parent.mkdir(parents=True, exist_ok=True)
     df = pd.DataFrame(sorted(counter.items()), columns=["Attack_encoded", "count"])
     df.to_csv(out_path, index=False)
 
+
 def domain_ratio_df(counter: Counter):
     total = sum(counter.values())
     if total == 0:
         return pd.DataFrame(columns=["label", "count", "ratio"])
+
     rows = []
     for lab in sorted(counter.keys()):
         cnt = counter[lab]
         ratio = cnt / total
         rows.append({"label": lab, "count": cnt, "ratio": ratio})
+
     return pd.DataFrame(rows)
+
 
 def process_for_k(k: int):
     out_k = OUT_BASE / f"k{k}"
@@ -105,9 +114,9 @@ def process_for_k(k: int):
             discard_windows += 1
             continue
 
-        has_k   = (k in S)
-        has_0   = (0 in S)
-        subset  = S.issubset({0, k})
+        has_k = (k in S)
+        has_0 = (0 in S)
+        subset = S.issubset({0, k})
 
         out_dir = out_k / win_dir.name
 
@@ -181,31 +190,41 @@ def process_for_k(k: int):
         })
         discard_windows += 1
 
-    manifest_df = pd.DataFrame(rows).sort_values("win_id")
+    manifest_df = pd.DataFrame(rows)
+    if not manifest_df.empty and "win_id" in manifest_df.columns:
+        manifest_df = manifest_df.sort_values("win_id")
     manifest_df.to_csv(out_k / f"manifest_k{k}.csv", index=False)
 
     src_df = domain_ratio_df(src_label_counter)
     tgt_df = domain_ratio_df(tgt_label_counter)
 
     all_labels = sorted(set(src_df["label"].tolist()) | set(tgt_df["label"].tolist()))
-    src_df = src_df.set_index("label").reindex(all_labels, fill_value=0).reset_index()
-    tgt_df = tgt_df.set_index("label").reindex(all_labels, fill_value=0).reset_index()
 
-    summary_df = pd.DataFrame({
-        "label": all_labels,
-        "source_count": [src_label_counter.get(l, 0) for l in all_labels],
-        "source_ratio": [float(src_df[src_df["label"]==l]["ratio"]) if l in src_df["label"].values else 0.0 for l in all_labels],
-        "target_count": [tgt_label_counter.get(l, 0) for l in all_labels],
-        "target_ratio": [float(tgt_df[tgt_df["label"]==l]["ratio"]) if l in tgt_df["label"].values else 0.0 for l in all_labels],
-    })
+    # 修复点：不要对 Series 直接 float()，而是先按 label 对齐再直接取列
+    if len(all_labels) > 0:
+        src_df = src_df.set_index("label").reindex(all_labels, fill_value=0)
+        tgt_df = tgt_df.set_index("label").reindex(all_labels, fill_value=0)
+
+        summary_df = pd.DataFrame({
+            "label": all_labels,
+            "source_count": src_df["count"].astype(int).tolist(),
+            "source_ratio": src_df["ratio"].astype(float).tolist(),
+            "target_count": tgt_df["count"].astype(int).tolist(),
+            "target_ratio": tgt_df["ratio"].astype(float).tolist(),
+        })
+    else:
+        summary_df = pd.DataFrame(columns=[
+            "label", "source_count", "source_ratio", "target_count", "target_ratio"
+        ])
 
     meta_row = pd.DataFrame([{
         "label": "___TOTAL___",
         "source_count": sum(src_label_counter.values()),
-        "source_ratio": 1.0 if sum(src_label_counter.values())>0 else 0.0,
+        "source_ratio": 1.0 if sum(src_label_counter.values()) > 0 else 0.0,
         "target_count": sum(tgt_label_counter.values()),
-        "target_ratio": 1.0 if sum(tgt_label_counter.values())>0 else 0.0,
+        "target_ratio": 1.0 if sum(tgt_label_counter.values()) > 0 else 0.0,
     }])
+
     summary_out = pd.concat([summary_df, meta_row], ignore_index=True)
     summary_out.to_csv(out_k / f"summary_k{k}.csv", index=False)
 
@@ -219,6 +238,7 @@ def process_for_k(k: int):
         "target_labels_total": sum(tgt_label_counter.values()),
         "source_labels_total": sum(src_label_counter.values())
     }
+
 
 def main():
     OUT_BASE.mkdir(parents=True, exist_ok=True)
@@ -242,6 +262,7 @@ def main():
             print(f"The original directory has been deleted: {IN_BASE}")
         except Exception as e:
             print(f"Delete {IN_BASE} Fail: {e}")
+
 
 if __name__ == "__main__":
     main()
